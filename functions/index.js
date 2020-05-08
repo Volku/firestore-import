@@ -1,0 +1,167 @@
+const functions = require('firebase-functions');
+
+// // Create and Deploy Your First Cloud Functions
+// // https://firebase.google.com/docs/functions/write-firebase-functions
+//
+const admin = require('firebase-admin')
+admin.initializeApp({
+    credential: admin.credential.applicationDefault()
+})
+
+const db = admin.firestore();
+
+exports.listSurvey = functions.https.onRequest(async (req, res) => {
+    await db.listCollections().then(collections => {
+        collections.forEach(collection => {
+            console.log('found collection: ', collection.id)
+        })
+    })
+})
+
+exports.helloWorld = functions.https.onRequest((request, response) => {
+    response.send("Hello from Firebase!");
+});
+
+exports.getCollectionToJson = functions.https.onRequest(async (req, res) => {
+    let collections = await getCollectionList(req.query.orgName)
+    let rawData = []
+    let raw_data2 = []
+    let toJson = []
+    console.log(collections[0])
+    for (let i = 0; i < collections.length; i++) {
+        console.log("orgName : " + req.query.orgName)
+        console.log("collection Name: " + collections[i])
+        rawData.push(await getScoreFromLog(req.query.orgName, String(collections[i])))
+    }
+    rawData = rawData.flat();
+
+
+    const promisesIndex = rawData.map(async (row) => {
+
+        let lastIndex = { 'last_playIndex': 0, 'last_roundIndex': 0}
+        let playIndex = lastIndex['last_playIndex'] + 1
+        let roundIndex = lastIndex['last_roundIndex'] + 1
+        row['playIndex'] = playIndex
+        row['roundIndex'] = roundIndex
+        raw_data2.push(row)
+    })
+
+    await Promise.all(promisesIndex)
+
+    let repeatPlay = []
+    const promises = raw_data2.map(async (row, index) => {
+
+        let foundIndex = repeatPlay.findIndex(each => each.employeeId === row.employeeId && each.challengeCode === row.challengeCode)
+        if (foundIndex !== -1) {
+            repeatPlay[foundIndex]['playIndex'] = repeatPlay[foundIndex].playIndex + 1
+            repeatPlay[foundIndex]['roundIndex'] = repeatPlay[foundIndex].roundIndex + 1
+            row['playIndex'] = repeatPlay[foundIndex].playIndex
+            row['roundIndex'] = repeatPlay[foundIndex].roundIndex
+        } else {
+            repeatPlay.push(row)
+        }
+
+        row.timestamp = String(row.timestamp)
+        let answers = row.answers
+        
+        await answers.map((answer) => {
+            let choiceCode = ""
+            if(!answer.choiceCode) {
+                console.log('answer: ', answer);
+                choiceCode=answer.code
+            }else{
+                choiceCode = answer.choiceCode.substring(0, 1)
+            }
+            let answeredAt = answer.timestamp.substring(0, answer.timestamp.length - 2)
+            
+
+            let temp = {
+                playId: row.id,
+                playIndex: row.playIndex,
+                roundIndex: row.roundIndex,
+                challengeCode: row.challengeCode,
+                employeeId: row.employeeId,
+                organizeId: row.orgName,
+                questionCode: answer.questionCode,
+                choiceCode: choiceCode,
+                score: answer.score,
+                answeredAt: answeredAt,
+                isCorrect: answer.isCorrect
+            }
+            toJson.push(temp)
+            return null
+        })
+    })
+
+    await Promise.all(promises)
+    console.log('prime time', JSON.stringify(toJson))
+
+    res.send(JSON.stringify(toJson))
+})
+
+const getScoreFromLog = async (orgName, month) => {
+    let result = []
+    await db.collection(`${orgName}-log`).doc('score').collection(month).get().then(snapshot => {
+        snapshot.forEach(doc => {
+            let temp = doc.data()
+            temp['id'] = doc.id
+            result.push(temp)
+            console.log("doc in: ", doc.id)
+        })
+        return
+    }).catch(err => {
+        console.log('error emited: ' + err)
+    })
+    return result
+}
+
+const getCollectionList = async (orgName) => {
+    let col_list = []
+    await db.collection(`${orgName}-log`).doc('score').listCollections().then(collections => {
+        collections.forEach(collection => {
+            col_list.push(collection.id)
+        });
+    });
+    return col_list
+}
+
+
+// [
+//     {
+//       challengeCode: 'bph-001-a',
+//       id: 'VpIC2UPM5F9v6ouTDp7W',
+//       answers: [
+//         [Object], [Object],
+//         [Object], [Object],
+//         [Object], [Object],
+//         [Object]
+//       ],
+//       timestamp: 1577357308741,
+//       subjectCode: 'bph',
+//       employeeId: 123499,
+//       orgName: 'bnp',
+//       collection: '2019-12',
+//       tracktime: '26/12/2019, 5:48:28 PM',
+//       chapterCode: 'bph-001'
+//     },
+//     {
+//       id: 'mZU09QYBP3yfKFN9EXk2',
+//       answers: [
+//         [Object], [Object],
+//         [Object], [Object],
+//         [Object], [Object],
+//         [Object]
+//       ],
+//       timestamp: 1577353091433,
+//       subjectCode: 'bph',
+//       employeeId: 123499,
+//       orgName: 'bnp',
+//       collection: '2019-12',
+//       tracktime: '26/12/2019, 4:38:11 PM',
+//       chapterCode: 'bph-001',
+//       challengeCode: 'bph-001-a'
+//     },
+//     playIndex: NaN,
+//     roundIndex: NaN,
+//     timestamp: 'undefined'
+//   ]
