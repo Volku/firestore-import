@@ -1,23 +1,30 @@
 const functions = require('firebase-functions');
-
-// // Create and Deploy Your First Cloud Functions
-// // https://firebase.google.com/docs/functions/write-firebase-functions
-//
+const FileSystem = require("fs");
 const admin = require('firebase-admin')
+const { BigQuery } = require('@google-cloud/bigquery')
+const ndjson = require('ndjson')
+
 admin.initializeApp({
     credential: admin.credential.applicationDefault()
 })
+
 const region = 'asia-northeast1'
+
 const runtimeOpts = {
     timeoutSeconds: 300,
     memory: '2GB'
-  }
+}
+let bigquery = new BigQuery({ projectId: 'vondercenter' })
 
-const { BigQuery } = require('@google-cloud/bigquery')
-let bigQuery = new BigQuery({ projectId: 'vondercenter' })
-    
 const db = admin.firestore();
 
+exports.loadFileIntoBigQuery = functions.https.onRequest(async (req, res) => {
+    let dataset = req.query.orgName
+    let table = "loaded_data"
+    let filename = `${dataset}-score.json`
+    await loadLocalJsonFileToBigQuery(dataset, table, filename)
+    res.send(`eazy complete with ${dataset}.${table} use ${filename}`)
+})
 exports.listSurvey = functions.https.onRequest(async (req, res) => {
     await db.listCollections().then(collections => {
         collections.forEach(collection => {
@@ -103,9 +110,9 @@ exports.getCollectionToJson = functions.region(region).runWith(runtimeOpts).http
 
     await Promise.all(promises)
     let result = JSON.stringify(toJson)
-    
-    await writeFile(`${req.query.orgName}-score.json`,result)
-    console.log("Json size: " , toJson.length)
+
+    await writeFile(`${req.query.orgName}-score.json`, result)
+    console.log("Json size: ", toJson.length)
     res.send(JSON.stringify(toJson))
 })
 
@@ -135,13 +142,51 @@ const getCollectionList = async (orgName) => {
     return col_list
 }
 
-const writeFile = (filename,str) => {
-    const FileSystem = require("fs");
+const writeFile = (filename, str) => {
+
     FileSystem.writeFile(filename, str, (err) => {
         if (err) throw err;
     });
 }
 
+const loadLocalJsonFileToBigQuery = async (datasetName, tableName, filename) => {
+
+    const metadata = {
+        sourceFormat: 'NEWLINE_DELIMITED_JSON',
+        autodetect: true,
+        location: 'ASIA',
+    };
+
+
+    const [job] = await bigquery
+        .dataset(datasetName)
+        .table(tableName)
+        .load(filename, metadata);
+
+    console.log(`Job ${job.id} completed.`);
+
+
+    const errors = job.status.errors;
+    if (errors && errors.length > 0) {
+        throw errors;
+    }
+}
+
+const parseJsonDataToNewLineDelimited = (filename) => {
+    let result = []
+    return new Promise((resolve, reject) => {
+        FileSystem.createReadStream(filename).pipe(ndjson.parse()).on('data', function (obj) {
+            result = obj
+        }).on("end", ()=> resolve(result)).on("error", error => reject(error))    
+    })
+
+}
+
+exports.parseFile = functions.runWith(runtimeOpts).https.onRequest(async (req, res) => {
+    let body = await parseJsonDataToNewLineDelimited("tcp-score.json")
+    console.log(body)
+    res.send(body)
+})
 // [
 //     {
 //       challengeCode: 'bph-001-a',
