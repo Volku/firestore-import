@@ -7,7 +7,15 @@ const admin = require('firebase-admin')
 admin.initializeApp({
     credential: admin.credential.applicationDefault()
 })
+const region = 'asia-northeast1'
+const runtimeOpts = {
+    timeoutSeconds: 300,
+    memory: '2GB'
+  }
 
+const { BigQuery } = require('@google-cloud/bigquery')
+let bigQuery = new BigQuery({ projectId: 'vondercenter' })
+    
 const db = admin.firestore();
 
 exports.listSurvey = functions.https.onRequest(async (req, res) => {
@@ -22,7 +30,7 @@ exports.helloWorld = functions.https.onRequest((request, response) => {
     response.send("Hello from Firebase!");
 });
 
-exports.getCollectionToJson = functions.https.onRequest(async (req, res) => {
+exports.getCollectionToJson = functions.region(region).runWith(runtimeOpts).https.onRequest(async (req, res) => {
     let collections = await getCollectionList(req.query.orgName)
     let rawData = []
     let raw_data2 = []
@@ -38,7 +46,7 @@ exports.getCollectionToJson = functions.https.onRequest(async (req, res) => {
 
     const promisesIndex = rawData.map(async (row) => {
 
-        let lastIndex = { 'last_playIndex': 0, 'last_roundIndex': 0}
+        let lastIndex = { 'last_playIndex': 0, 'last_roundIndex': 0 }
         let playIndex = lastIndex['last_playIndex'] + 1
         let roundIndex = lastIndex['last_roundIndex'] + 1
         row['playIndex'] = playIndex
@@ -63,17 +71,17 @@ exports.getCollectionToJson = functions.https.onRequest(async (req, res) => {
 
         row.timestamp = String(row.timestamp)
         let answers = row.answers
-        
+
         await answers.map((answer) => {
             let choiceCode = ""
-            if(!answer.choiceCode) {
+            if (!answer.choiceCode) {
                 console.log('answer: ', answer);
-                choiceCode=answer.code
-            }else{
+                choiceCode = answer.code
+            } else {
                 choiceCode = answer.choiceCode.substring(0, 1)
             }
             let answeredAt = answer.timestamp.substring(0, answer.timestamp.length - 2)
-            
+
 
             let temp = {
                 playId: row.id,
@@ -94,8 +102,10 @@ exports.getCollectionToJson = functions.https.onRequest(async (req, res) => {
     })
 
     await Promise.all(promises)
-    console.log('prime time', JSON.stringify(toJson))
-
+    let result = JSON.stringify(toJson)
+    
+    await writeFile(`${req.query.orgName}-score.json`,result)
+    console.log("Json size: " , toJson.length)
     res.send(JSON.stringify(toJson))
 })
 
@@ -125,6 +135,12 @@ const getCollectionList = async (orgName) => {
     return col_list
 }
 
+const writeFile = (filename,str) => {
+    const FileSystem = require("fs");
+    FileSystem.writeFile(filename, str, (err) => {
+        if (err) throw err;
+    });
+}
 
 // [
 //     {
