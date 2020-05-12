@@ -1,22 +1,11 @@
 const functions = require('firebase-functions');
-const FileSystem = require("fs");
-const admin = require('firebase-admin')
-const { BigQuery } = require('@google-cloud/bigquery')
-const ndjson = require('ndjson')
+let region,runtimeOpts,bigquery = require( "./util/bigqueryConfig.js")
+let writeFile,parseJsonDataToNewLineDelimited = require("./util/fileUtil.js")
+let getCollectionList,getScoreFromLog,db,admin= require( "./util/firebaseUtil.js")
 
 admin.initializeApp({
     credential: admin.credential.applicationDefault()
 })
-
-const region = 'asia-northeast1'
-
-const runtimeOpts = {
-    timeoutSeconds: 300,
-    memory: '2GB'
-}
-let bigquery = new BigQuery({ projectId: 'vondercenter' })
-
-const db = admin.firestore();
 
 exports.loadFileIntoBigQuery = functions.https.onRequest(async (req, res) => {
     let dataset = req.query.orgName
@@ -25,6 +14,7 @@ exports.loadFileIntoBigQuery = functions.https.onRequest(async (req, res) => {
     await loadLocalJsonFileToBigQuery(dataset, table, filename)
     res.send(`eazy complete with ${dataset}.${table} use ${filename}`)
 })
+
 exports.listSurvey = functions.https.onRequest(async (req, res) => {
     await db.listCollections().then(collections => {
         collections.forEach(collection => {
@@ -32,10 +22,6 @@ exports.listSurvey = functions.https.onRequest(async (req, res) => {
         })
     })
 })
-
-exports.helloWorld = functions.https.onRequest((request, response) => {
-    response.send("Hello from Firebase!");
-});
 
 exports.getCollectionToJson = functions.region(region).runWith(runtimeOpts).https.onRequest(async (req, res) => {
     let collections = await getCollectionList(req.query.orgName)
@@ -116,39 +102,6 @@ exports.getCollectionToJson = functions.region(region).runWith(runtimeOpts).http
     res.send(JSON.stringify(toJson))
 })
 
-const getScoreFromLog = async (orgName, month) => {
-    let result = []
-    await db.collection(`${orgName}-log`).doc('score').collection(month).get().then(snapshot => {
-        snapshot.forEach(doc => {
-            let temp = doc.data()
-            temp['id'] = doc.id
-            result.push(temp)
-            console.log("doc in: ", doc.id)
-        })
-        return
-    }).catch(err => {
-        console.log('error emited: ' + err)
-    })
-    return result
-}
-
-const getCollectionList = async (orgName) => {
-    let col_list = []
-    await db.collection(`${orgName}-log`).doc('score').listCollections().then(collections => {
-        collections.forEach(collection => {
-            col_list.push(collection.id)
-        });
-    });
-    return col_list
-}
-
-const writeFile = (filename, str) => {
-
-    FileSystem.writeFile(filename, str, (err) => {
-        if (err) throw err;
-    });
-}
-
 const loadLocalJsonFileToBigQuery = async (datasetName, tableName, filename) => {
 
     const metadata = {
@@ -156,12 +109,13 @@ const loadLocalJsonFileToBigQuery = async (datasetName, tableName, filename) => 
         autodetect: true,
         location: 'ASIA',
     };
+    dirname = 'NDJSON-SCORE'
 
 
     const [job] = await bigquery
         .dataset(datasetName)
         .table(tableName)
-        .load(filename, metadata);
+        .load(`${dirname}/${filename}`, metadata);
 
     console.log(`Job ${job.id} completed.`);
 
@@ -170,16 +124,6 @@ const loadLocalJsonFileToBigQuery = async (datasetName, tableName, filename) => 
     if (errors && errors.length > 0) {
         throw errors;
     }
-}
-
-const parseJsonDataToNewLineDelimited = (filename) => {
-    let result = []
-    return new Promise((resolve, reject) => {
-        FileSystem.createReadStream(filename).pipe(ndjson.parse()).on('data', function (obj) {
-            result = obj
-        }).on("end", ()=> resolve(result)).on("error", error => reject(error))    
-    })
-
 }
 
 exports.parseFile = functions.runWith(runtimeOpts).https.onRequest(async (req, res) => {
