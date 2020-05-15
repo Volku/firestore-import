@@ -12,8 +12,11 @@
     "node": "8"
   },
   "dependencies": {
+    "@google-cloud/bigquery": "^4.7.0",
+    "@google-cloud/storage": "^5.0.0",
     "firebase-admin": "^8.6.0",
-    "firebase-functions": "^3.3.0"
+    "firebase-functions": "^3.3.0",
+    "ndjson": "^1.5.0"
   },
   "devDependencies": {
     "firebase-functions-test": "^0.1.6"

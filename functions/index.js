@@ -1,16 +1,18 @@
 const functions = require('firebase-functions');
-let region,runtimeOpts,bigquery = require( "./util/bigqueryConfig.js")
-let writeFile,parseJsonDataToNewLineDelimited = require("./util/fileUtil.js")
-let getCollectionList,getScoreFromLog,db,admin= require( "./util/firebaseUtil.js")
+const {region,runtimeOpts} = require( "./util/bigqueryConfig.js")
+const {writeFile,parseJsonDataToNewLineDelimited} = require("./util/fileUtil.js")
+const {getCollectionList,getScoreFromLog,db} = require( "./util/firebaseUtil.js")
+const { BigQuery } = require('@google-cloud/bigquery')
 
-admin.initializeApp({
-    credential: admin.credential.applicationDefault()
-})
+const projectId = 'vondercenter'
+const bigquery = new BigQuery({projectId:projectId})
 
-exports.loadFileIntoBigQuery = functions.https.onRequest(async (req, res) => {
+
+exports.loadFileIntoBigQuery = functions.region(region).runWith(runtimeOpts).https.onRequest(async (req, res) => {
     let dataset = req.query.orgName
     let table = "loaded_data"
     let filename = `${dataset}-score.json`
+    
     await loadLocalJsonFileToBigQuery(dataset, table, filename)
     res.send(`eazy complete with ${dataset}.${table} use ${filename}`)
 })
@@ -39,7 +41,7 @@ exports.getCollectionToJson = functions.region(region).runWith(runtimeOpts).http
 
     const promisesIndex = rawData.map(async (row) => {
 
-        let lastIndex = { 'last_playIndex': 0, 'last_roundIndex': 0 }
+        let lastIndex = await find_playIndex(row)
         let playIndex = lastIndex['last_playIndex'] + 1
         let roundIndex = lastIndex['last_roundIndex'] + 1
         row['playIndex'] = playIndex
@@ -99,8 +101,35 @@ exports.getCollectionToJson = functions.region(region).runWith(runtimeOpts).http
 
     await writeFile(`${req.query.orgName}-score.json`, result)
     console.log("Json size: ", toJson.length)
-    res.send(JSON.stringify(toJson))
+    res.send(JSON.stringify(toJson)).end()
 })
+
+const find_playIndex = async (params) => {
+    let { orgName, employeeId, challengeCode } = params
+
+    let promise = new Promise(resolve => {
+        let dataSetId = orgName
+        let fullTableName = projectId + '.' + dataSetId + '.loaded_data'
+        let sql = `SELECT max(playIndex) as last_playIndex, max(roundIndex) as last_roundIndex FROM ${fullTableName} WHERE employeeId='${employeeId}' and challengeCode='${challengeCode}' ;`;
+        console.log(sql)
+
+        bigquery.query({
+            query: sql,
+            useLegacySql: false
+        }).then((results) => {
+            resolve(results[0])
+            return null
+        }).catch((error) => {
+            resolve(null)
+            return null
+        })
+    })
+    let result = await promise
+    let { last_playIndex, last_roundIndex } = result ? result[0] : { last_playIndex: 0, last_roundIndex: 0 }
+    last_playIndex = (last_playIndex !== null) ? last_playIndex : 0
+    last_roundIndex = (last_roundIndex !== null) ? last_roundIndex : 0
+    return { 'last_playIndex': last_playIndex, 'last_roundIndex': last_roundIndex }
+}
 
 const loadLocalJsonFileToBigQuery = async (datasetName, tableName, filename) => {
 
@@ -108,6 +137,8 @@ const loadLocalJsonFileToBigQuery = async (datasetName, tableName, filename) => 
         sourceFormat: 'NEWLINE_DELIMITED_JSON',
         autodetect: true,
         location: 'ASIA',
+        writeDisposition: 'WRITE_APPEND',
+        schema:'playId:string, playIndex:integer, roundIndex:integer, challengeCode:string, employeeId:string, organizeId:string, questionCode:string, choiceCode:string, score:integer, answeredAt:datetime, isCorrect:boolean'
     };
     dirname = 'NDJSON-SCORE'
 
@@ -127,9 +158,10 @@ const loadLocalJsonFileToBigQuery = async (datasetName, tableName, filename) => 
 }
 
 exports.parseFile = functions.runWith(runtimeOpts).https.onRequest(async (req, res) => {
-    let body = await parseJsonDataToNewLineDelimited("tcp-score.json")
+    let orgName= req.query.orgName
+    let body = await parseJsonDataToNewLineDelimited(`${orgName}-score.json`)
     console.log(body)
-    res.send(body)
+    res.send(body).end()
 })
 // [
 //     {

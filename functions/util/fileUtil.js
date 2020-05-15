@@ -13,7 +13,7 @@ const parseJsonDataToNewLineDelimited = (filename) => {
     rawData = JSON.parse(rawData)
     dirname = 'NDJSON-SCORE'
     let transformStream =ndjson.stringify();
-    let outputStream =transformStream.pipe( FileSystem.createWriteStream(dirname/"tcp-score.ndjson"))
+    let outputStream =transformStream.pipe( FileSystem.createWriteStream(dirname+"/old-tcp-score.json"))
 
     rawData.forEach(
         function iterator(data){
