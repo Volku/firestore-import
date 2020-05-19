@@ -15,7 +15,6 @@ const getScoreFromLog = async (orgName, month) => {
             let temp = doc.data()
             temp['id'] = doc.id
             result.push(temp)
-            console.log("doc in: ", doc.id)
         })
         return
     }).catch(err => {
