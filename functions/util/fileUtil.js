@@ -8,12 +8,12 @@ const writeFile = (filename, str) => {
     });
 }
 
-const parseJsonDataToNewLineDelimited = (filename) => {
+const parseJsonDataToNewLineDelimited = (filename,orgName) => {
     let rawData = FileSystem.readFileSync(filename);
     rawData = JSON.parse(rawData)
     dirname = 'NDJSON-SCORE'
     let transformStream =ndjson.stringify();
-    let outputStream =transformStream.pipe( FileSystem.createWriteStream(dirname+"/old-tcp-score.json"))
+    let outputStream =transformStream.pipe( FileSystem.createWriteStream(dirname+`/${orgName}-score.json`))
 
     rawData.forEach(
         function iterator(data){
