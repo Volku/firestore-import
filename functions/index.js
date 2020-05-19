@@ -10,7 +10,7 @@ const bigquery = new BigQuery({projectId:projectId})
 
 exports.loadFileIntoBigQuery = functions.region(region).runWith(runtimeOpts).https.onRequest(async (req, res) => {
     let dataset = req.query.orgName
-    let table = "loaded_data"
+    let table = "score"
     let filename = `${dataset}-score.json`
     
     await loadLocalJsonFileToBigQuery(dataset, table, filename)
@@ -36,6 +36,7 @@ exports.getCollectionToJson = functions.region(region).runWith(runtimeOpts).http
         console.log("collection Name: " + collections[i])
         rawData.push(await getScoreFromLog(req.query.orgName, String(collections[i])))
     }
+    console.log(rawData.length)
     rawData = rawData.flat();
 
 
@@ -159,7 +160,7 @@ const loadLocalJsonFileToBigQuery = async (datasetName, tableName, filename) => 
 
 exports.parseFile = functions.runWith(runtimeOpts).https.onRequest(async (req, res) => {
     let orgName= req.query.orgName
-    let body = await parseJsonDataToNewLineDelimited(`${orgName}-score.json`)
+    let body = await parseJsonDataToNewLineDelimited(`${orgName}-score.json`,orgName)
     console.log(body)
     res.send(body).end()
 })
